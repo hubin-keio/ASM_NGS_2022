@@ -58,7 +58,9 @@ def plot_stats(df: pd.DataFrame, colname, ref_point, save_under) -> None:
     a vertical line with a label indicating its value.
 
     """
-    plt.style.use('ggplot')
+    sns.set_theme()
+    sns.set_context('talk')
+    
     plt.figure()
     g = sns.histplot(data=data, x=colname, stat='percent', bins=10, kde=True)
     g.axvline(ref_point)
@@ -70,8 +72,23 @@ def plot_stats(df: pd.DataFrame, colname, ref_point, save_under) -> None:
     try:
         plt.savefig(save_under)
     except:
-        print(f'Cannot save file {save_under}.')
+        print(f'Cannot save file {save_under}.', file=sys.stderr)
         sys.exit()
+
+def get_increased_kds(df: pd.DataFrame, colname: str, ref: float) -> list:
+    """Get the mutant labels for all mutations showing increased Kd.
+    
+    df: dataframe with mutant and kd
+    colname: column name of interest
+    ref: reference (wildtype) kd
+    """
+    mut = data[data[colname] > wt_log10Ka]
+    mut = list(mut['mutation'])
+
+    # TODO: get kmer analysis for increased kd.
+    # def build_
+    
+
 
 
 if __name__ == '__main__':
@@ -87,6 +104,8 @@ if __name__ == '__main__':
     
     data = load_data(binding_csv)
     plot_stats(data, 'log10Ka', wt_log10Ka, hist_plot_file)
+
+    mut_inc_kd  = get_increased_kds(data, 'log10Ka', wt_log10Ka)
     
     
 
