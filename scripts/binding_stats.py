@@ -42,9 +42,6 @@ def load_data(csv: str) -> pd.DataFrame:
     data['log10Ka'] = data['log10Ka'].str.slice(start=len('log10Ka=')+1)
     data['log10Ka_SD'] = data['log10Ka_SD'].str.slice(start=len('ka_sd=')+1)
 
-    # data['log10Ka'] = pd.to_numeric(data['log10Ka'])
-    # data['log10Ka_SD'] = pd.to_numeric(data['log10Ka_SD'])
-
     return data.astype({'mutation': str,
                         'log10Ka': np.float32,
                         'log10Ka_SD': np.float32})
@@ -61,9 +58,9 @@ def plot_stats(df: pd.DataFrame, colname, ref_point, save_under) -> None:
     sns.set_theme()
     sns.set_context('talk')
     
-    plt.figure()
+    plt.figure(figsize=(8, 6))
     g = sns.histplot(data=data, x=colname, stat='percent', bins=10, kde=True)
-    g.axvline(ref_point)
+    g.axvline(ref_point, color='red')
 
     # percentage of mutations with increased
     increased_pct = data[data[colname] > wt_log10Ka].shape[0]/data.shape[0] * 100

@@ -30,10 +30,7 @@ def plot_tsne(vector_txt: str, vec_size: int, save_as: str):
                  random_state=0)
     vecs_2d = model.fit_transform(vecs)
 
-    # plt.style.use('ggplot')
-    sns.set_theme()
-    sns.set_context('talk')
-    fig = plt.figure()
+    fig = plt.figure(figsize=(8, 6))    
     sns.scatterplot(x=vecs_2d[:,0], y=vecs_2d[:,1], marker='.')
     try:
         fig.savefig(save_as)
@@ -41,13 +38,46 @@ def plot_tsne(vector_txt: str, vec_size: int, save_as: str):
         print(f'Cannot save file {save_as}.', file=sys.stderr)
         sys.exit()
 
+def plot_voc(voc_txt: str, save_as: str):
+    """Plot vocabulary usage frequency
+
+    voc_txt: two column vocab file.
+    save_as: file to save the plot.
+    """
+    try:
+        voc = np.loadtxt(voc_txt, delimiter=' ', usecols=1)
+    except:
+        print(f'Cannot load data from {voc_txt}.', file=sys.stderr)
+        sys.exit(1)
+
+    fig = plt.figure(figsize=(8, 6))
+    plt.plot(voc)
+    plt.yscale('log')
+    plt.ylabel('Vocabulary Frequency')
+
+    try:
+        gig.savefig(save_as)
+    except:
+        print(f'Cannot save file {save_as}.', file=sys.stderr)
+        sys.exit()
+    
+    
+
+    
+    
 if __name__ == '__main__':
     ROOT_DIR = os.path.abspath(os.path.dirname(__file__))
     ROOT_DIR = os.path.abspath(os.path.join(ROOT_DIR, '..'))
     PLOTS_DIR = os.path.join(ROOT_DIR, 'plots')
 
+    sns.set_theme()
+    sns.set_context('talk')
+
     vector_txt = os.path.join(ROOT_DIR, 'glove/glove_dms_k6_s2.vector.txt')
     tsne_plot_file = os.path.join(PLOTS_DIR, 'glove_tsne.png')
-
     vec_size = 50
     plot_tsne(vector_txt, vec_size, tsne_plot_file)
+    
+    voc_txt = os.path.join(ROOT_DIR, 'glove/glove_dms_k6_s2.vocab')
+    voc_plot_file = os.path.join(PLOTS_DIR, 'glove_voc_frequency.png')    
+    plot_voc(voc_txt, voc_plot_file)
