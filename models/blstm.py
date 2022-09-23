@@ -9,8 +9,6 @@ from torch.utils.data import Dataset
 
 class BindignDataset(Dataset):
     """Binding dataset
-
-
     """
     def __init__(self, csv_file: str, refseq: str):
         """
@@ -31,14 +29,14 @@ class BindignDataset(Dataset):
             labels = []
             log10_ka = []
             try:
-                with open(self.csv_file, 'r') as fh:
+                with open(csv_file, 'r') as fh:
                     for line in fh. readlines():
                         [label, affinity, _] = line.split(',')
                         affinity = np.float32(affinity.split('=')[1])
                         labels.append(label)
                         log10_ka.append(affinity)
             except FileNotFoundError:
-                print(f'File not found error: {self.csv_file}.', file=sys.stderr)
+                print(f'File not found error: {csv_file}.', file=sys.stderr)
                 sys.exit(1)
             return labels, log10_ka
 
@@ -53,7 +51,9 @@ class BindignDataset(Dataset):
 
     def __getitem__(self, idx):
         try:
-            return self._label_to_seq(self.labels[idx]), self.log10_ka[idx]
+            seq = self._label_to_seq(self.labels[idx])
+            kmers = self._get_kmers(seq)
+            return kmers, self.log10_ka[idx]
         except IndexError:
             print(f'List index out of range: {idx}, length: {len(self.labels)}.',
                   file=sys.stderr)
@@ -81,6 +81,24 @@ class BindignDataset(Dataset):
         seq[pos] = mut.upper()
         seq = ''.join(seq)
         return seq
+
+    def _get_kmers(self, seq: str, k_size: int=6, stride: int=2) -> list:
+        """Get Kmers of a sequence with kmer and stride length defined in class.
+
+        seq: input sequence
+        k_size: kmer size, default to 6
+        stride: stride for sliding widow, default to 2
+        """
+
+        seq_len = len(seq)
+        kmers = []
+
+        for i in range(0, seq_len, stride):
+            if i + k_size >= seq_len+1:
+                break
+            kmers.append(seq[i:i + k_size])
+        return kmers
+
 
 
 
