@@ -6,6 +6,9 @@ import sys
 import numpy as np
 import torch
 from torch.utils.data import Dataset
+from torch.utils.data import DataLoader
+from torch.utils.data import random_split
+
 
 class BindignDataset(Dataset):
     """Binding dataset
@@ -48,7 +51,6 @@ class BindignDataset(Dataset):
     def __len__(self) -> int:
         return len(self.labels)
 
-
     def __getitem__(self, idx):
         try:
             seq = self._label_to_seq(self.labels[idx])
@@ -61,12 +63,13 @@ class BindignDataset(Dataset):
 
     def _label_to_seq(self, label: str) -> str:
         """Genreate sequence based on reference sequence and mutation label."""
-        seq = self.refseq
+        seq = self.refseq.copy()
         p = '([0-9]+)'
         if '_' in label:
             for mutcode in label.split('_'):
                 [ori, pos, mut] = re.split(p, mutcode)
                 pos = int(pos)-1    # use 0-based counting
+                print(label, self.refseq[pos].upper(), ori)
                 assert self.refseq[pos].upper() == ori
                 seq[pos] = mut.upper()
             seq = ''.join(seq)
@@ -113,4 +116,7 @@ if __name__=='__main__':
 
     csv_file = os.path.join(DATA_DIR, 'mutation_binding_Kds.csv')
     REFSEQ = 'NITNLCPFGEVFNATRFASVYAWNRKRISNCVADYSVLYNSASFSTFKCYGVSPTKLNDLCFTNVYADSFVIRGDEVRQIAPGQTGKIADYNYKLPDDFTGCVIAWNSNNLDSKVGGNYNYLYRLFRKSNLKPFERDISTEIYQAGSTPCNGVEGFNCYFPLQSYGFQPTNGVGYQPYRVVVLSFELLHAPATVCGPKKST'
-    tests = BindignDataset(csv_file, REFSEQ)
+    data_set = BindignDataset(csv_file, REFSEQ)
+    train_size = int(0.8 * len(data_set))
+    test_size = len(data_set) - train_size
+    train_set, test_set = random_split(data_set, (train_size, test_size))
