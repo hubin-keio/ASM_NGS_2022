@@ -10,16 +10,6 @@ from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from torch.utils.data import random_split
 
-# class GloveKmer:
-#     """Transform a sequence to Glove kmer features.
-#     """
-#     def __init__(self, kmer_csv: str):
-#         self.csv = kmer_csv
-
-
-#     def __call__(self, seq: str):
-#         return seq
-
 class Transformer:
     """Transforms input sequence to features"""
 
@@ -32,13 +22,9 @@ class Transformer:
             self._load_glove_vect()
 
         else:
-            print('unimplemented transform method', file=sys.pystderr)
+            print('unimplemented transform method', file=sys.stderr)
             sys.exit(1)
         self._load_glove_vect()
-
-    # def __call__(self, seq: str):
-    #     if self.method == 'glove_kmer':
-    #         glove_kmer(seq)
 
     def _load_glove_vect(self):
         """load Glove word vector file"""
@@ -52,8 +38,9 @@ class Transformer:
                 self.glove_kmer_dict.update({kmer: vects})
             self.glove_vec_size = len(vects)
 
-    def _get_kmer(self, seq: str, k_size: int=6, stride: int=2) -> list:
-        """ Transform seq to tensor using glove vectors
+    @classmethod
+    def get_kmer(cls, seq: str, k_size: int=6, stride: int=2) -> list:
+        """ Transform seq to kmers
 
         seq: input sequence
         k_size: kmer size, default to 6
@@ -68,9 +55,21 @@ class Transformer:
             kmers.append(seq[i:i + k_size])
         return kmers
 
-    def _get_glove_embedding(self, seq: str) -> torch.Tensor:
-        """Get the tensor representation of a sequence using Glove vectors."""
-        kmers = self._get_kmer(seq)
+    def embed(self, seq) -> torch.Tensor:
+        """Embed sequence feature using a defind method.
+
+        seq: sequence of input.
+        """
+        if self.method == 'glove_kmer':
+            return self._embed_glove(seq)
+
+        print(f'Undefined embedding method: {self.method}', file=sys.stderr)
+        sys.exit(1)
+
+
+    def _embed_glove(self, seq: str) -> torch.Tensor:
+        """Embed sequence feature using Glove vectors."""
+        kmers = self.get_kmer(seq)
         embedding = torch.zeros(len(kmers), self.glove_vec_size)
         for idx, kmer in enumerate(kmers):
             try:
@@ -85,13 +84,14 @@ class Transformer:
 class BindignDataset(Dataset):
     """Binding dataset
     """
-    def __init__(self, csv_file: str, refseq: str, ):
+    def __init__(self, csv_file: str, refseq: str, transformer: Transformer):
         """
         Load sequence label and binding data from csv file and generate full
         sequence using the label and refseq.
 
         csv_file: a csv file with sequence label and kinetic data.
         refseq: reference sequence (wild type sequence)
+        transformer: a Transfomer object for embedding features.
 
         The csv file has this format (notice that ka_sd :
 
@@ -118,6 +118,7 @@ class BindignDataset(Dataset):
         self.csv_file = csv_file
         self.refseq = list(refseq)
         self.labels, self.log10_ka = _load_csv()
+        self.transformer = transformer
 
     def __len__(self) -> int:
         return len(self.labels)
@@ -125,10 +126,11 @@ class BindignDataset(Dataset):
     def __getitem__(self, idx):
         try:
             seq = self._label_to_seq(self.labels[idx])
+            features = self.transformer.embed(seq)
             # kmers = self._get_kmers(seq)
             # return kmers, self.log10_ka[idx]
 
-            return GloveKmer(seq), self.log10_ka[idx]
+            return features, self.log10_ka[idx]
         except IndexError:
             print(f'List index out of range: {idx}, length: {len(self.labels)}.',
                   file=sys.stderr)
@@ -205,7 +207,7 @@ class BindignDataset(Dataset):
 #         logits = self.dense1(logits)
 #         logits = self.relu(logits)
 #         prediction = self.out(logits)
-#         return prediction
+#         return predictiono
 
 
 # def run_lstm(train_loader, test_loader, model, n_epoch: int=10):
@@ -227,12 +229,13 @@ if __name__=='__main__':
     BATCH_SIZE = 64
 
     # Dataset split and dataloader
-    data_set = BindignDataset(kd_csv, REFSEQ)
+    glove_transformer = Transformer('glove_kmer', glove_csv=glove_csv)
+    data_set = BindignDataset(kd_csv, REFSEQ, glove_transformer)
     TRAIN_SIZE = int(0.8 * len(data_set))  # 80% goes to training.
     TEST_SIZE = len(data_set) - TRAIN_SIZE
     train_set, test_set = random_split(data_set, (TRAIN_SIZE, TEST_SIZE))
 
     train_loader = DataLoader(train_set, batch_size=BATCH_SIZE, shuffle=True)
     test_loader = DataLoader(test_set, batch_size=BATCH_SIZE, shuffle=True)
-
-    transformer = Transformer('glove_kmer', glove_csv=glove_csv)
+    train_feature, train_target = next(iter(train_loader))
+    print(train_feature[0], train_feature[0].shape, train_target[0])
