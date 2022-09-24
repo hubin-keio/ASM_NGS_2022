@@ -13,18 +13,16 @@ from torch.utils.data import random_split
 class Transformer:
     """Transforms input sequence to features"""
 
-
     def __init__(self, method: str, **kwargs):
         if method == 'glove_kmer':
             assert 'glove_csv' in kwargs.keys()
             self.glove_csv = kwargs['glove_csv']
             self.method = 'glove_kmer'
             self._load_glove_vect()
-
         else:
             print('unimplemented transform method', file=sys.stderr)
             sys.exit(1)
-        self._load_glove_vect()
+
 
     def _load_glove_vect(self):
         """load Glove word vector file"""
@@ -38,14 +36,15 @@ class Transformer:
                 self.glove_kmer_dict.update({kmer: vects})
             self.glove_vec_size = len(vects)
 
-    @classmethod
-    def get_kmer(cls, seq: str, k_size: int=6, stride: int=2) -> list:
+    @staticmethod
+    def get_kmer(seq: str, k_size: int=6, stride: int=2) -> list:
         """ Transform seq to kmers
 
         seq: input sequence
         k_size: kmer size, default to 6
         stride: stride for sliding widow, default to 2
         """
+        
         seq_len = len(seq)
         kmers = []
 
@@ -65,7 +64,6 @@ class Transformer:
 
         print(f'Undefined embedding method: {self.method}', file=sys.stderr)
         sys.exit(1)
-
 
     def _embed_glove(self, seq: str) -> torch.Tensor:
         """Embed sequence feature using Glove vectors."""
@@ -135,6 +133,10 @@ class BindignDataset(Dataset):
             print(f'List index out of range: {idx}, length: {len(self.labels)}.',
                   file=sys.stderr)
             sys.exit(1)
+
+    def __repr__(self):
+        repr = f'Dataset object using {self.transformer.method} with {len(self)} entries.'
+        return repr
 
     def _label_to_seq(self, label: str) -> str:
         """Genreate sequence based on reference sequence and mutation label."""
