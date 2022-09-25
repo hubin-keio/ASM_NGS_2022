@@ -5,7 +5,7 @@ import re
 import sys
 import numpy as np
 import torch
-# from torch import nn
+from torch import nn
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from torch.utils.data import random_split
@@ -23,7 +23,6 @@ class Transformer:
             print('unimplemented transform method', file=sys.stderr)
             sys.exit(1)
 
-
     def _load_glove_vect(self):
         """load Glove word vector file"""
         self.glove_kmer_dict = {}
@@ -32,7 +31,7 @@ class Transformer:
                 k_line = k_line.rstrip().split()
                 kmer = k_line[0]
                 vects = k_line[1:]
-                vects = torch.FloatTensor([float(x) for x in vects])
+                vects = torch.tensor([float(x) for x in vects], requires_grad=True)
                 self.glove_kmer_dict.update({kmer: vects})
             self.glove_vec_size = len(vects)
 
@@ -44,7 +43,6 @@ class Transformer:
         k_size: kmer size, default to 6
         stride: stride for sliding widow, default to 2
         """
-        
         seq_len = len(seq)
         kmers = []
 
@@ -80,8 +78,7 @@ class Transformer:
 
 
 class BindignDataset(Dataset):
-    """Binding dataset
-    """
+    """Binding dataset."""
     def __init__(self, csv_file: str, refseq: str, transformer: Transformer):
         """
         Load sequence label and binding data from csv file and generate full
@@ -123,20 +120,21 @@ class BindignDataset(Dataset):
 
     def __getitem__(self, idx):
         try:
-            seq = self._label_to_seq(self.labels[idx])
+            label = self.labels[idx]
+            seq = self._label_to_seq(label)
             features = self.transformer.embed(seq)
             # kmers = self._get_kmers(seq)
             # return kmers, self.log10_ka[idx]
 
-            return features, self.log10_ka[idx]
+            return label, features, self.log10_ka[idx]
         except IndexError:
             print(f'List index out of range: {idx}, length: {len(self.labels)}.',
                   file=sys.stderr)
             sys.exit(1)
 
-    def __repr__(self):
-        repr = f'Dataset object using {self.transformer.method} with {len(self)} entries.'
-        return repr
+    # def __repr__(self):
+    #     repr = f'Dataset object using {self.transformer.method} with {len(self)} entries.'
+    #     return repr
 
     def _label_to_seq(self, label: str) -> str:
         """Genreate sequence based on reference sequence and mutation label."""
@@ -161,55 +159,56 @@ class BindignDataset(Dataset):
         seq = ''.join(seq)
         return seq
 
-    # def _get_kmers(self, seq: str, k_size: int=6, stride: int=2) -> list:
-    #     """Get Kmers of a sequence with kmer and stride length defined in class.
 
-    #     seq: input sequence
-    #     k_size: kmer size, default to 6
-    #     stride: stride for sliding widow, default to 2
-    #     """
+class BLSTM(nn.Module):
+    """Bidirectional LSTM
+    """
+    def __init__(self,
+                 batch_size,         # Batch size of the tensor
+                 lstm_input_size,    # The number of expected features. For GloVe, it is 50.
+                 lstm_hidden_size,   # The number of features in hidden state h.
+                 lstm_num_layers,    # Number of recurrent layers in LSTM.
+                 lstm_bidirectional, # Bidrectional LSTM.
+                 fcn_hidden_size,    # The number of features in hidden layer of CN.
+                 device):            # Device ('cpu' or 'cuda')
+        super().__init__()
+        self.batch_size = batch_size
+        self.device = device
 
-    #     seq_len = len(seq)
-    #     kmers = []
 
-    #     for i in range(0, seq_len, stride):
-    #         if i + k_size >= seq_len+1:
-    #             break
-    #         kmers.append(seq[i:i + k_size])
-    #     return kmers
+        # LSTM layer
+        self.lstm = nn.LSTM(input_size=lstm_input_size,
+                            hidden_size=lstm_hidden_size,
+                            num_layers=lstm_num_layers,
+                            bidirectional=lstm_bidirectional,
+                            batch_first=True)               # batch first
 
-# class BLSTM(nn.Module):
-#     """Bidirectional LSTM
+        # FCN fcn layer
+        if lstm_bidirectional:
+            self.fcn = nn.Linear(2 * lstm_hidden_size, fcn_hidden_size)
+        else:
+            self.fcn = nn.Linear(lstm_hidden_size, fcn_hidden_size)
 
-#     """
-#     def __init__(self, input_size, hidden_size, hidden_size_2, num_layers):
-#         super(RBDLSTM, self).__init__()
-#         self.input_size = input_size  # input size
-#         self.hidden_size = hidden_size  # hidden state
-#         self.num_layers = num_layers  # number of layers
+        # FCN output layer
+        self.out = nn.Linear(fcn_hidden_size, 1)
 
-#         self.lstm = nn.LSTM(input_size=input_size,
-#                             hidden_size=hidden_size,
-#                             num_layers=num_layers,
-#                             batch_first=True)
-#         self.dense1 = nn.Linear(hidden_size, hidden_size_2)  # first connected layer
-#         self.out = nn.Linear(hidden_size_2, 1)  # connected last layer
+    def forward(self, x):
+        # Initialize hidden and cell states to zeros.
+        num_directions = 2 if self.lstm.bidirectional else 1
+        h_0 = torch.zeros(num_directions * self.lstm.num_layers,
+                          x.size(0),
+                          self.lstm.hidden_size).to(self.device)
+        c_0 = torch.zeros(num_directions * self.lstm.num_layers,
+                          x.size(0),
+                          self.lstm.hidden_size).to(self.device)
 
-#         self.relu = nn.ReLU()  # set activation layer ============> Is this needed? BH 1/29/22
-
-#     def forward(self, x):
-#         h_0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(device)  # hidden_state
-#         c_0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(device)  # internal state
-
-#         # call lstm with input, hidden state, and internal state
-#         output, (hn, cn) = self.lstm(x, (h_0, c_0))
-#         # reshape hdden layer for activate layer for out.shape = (seq_len, hidden_size)
-#         out = output.view(-1, self.hidden_size).to(device)
-#         logits = self.relu(out)
-#         logits = self.dense1(logits)
-#         logits = self.relu(logits)
-#         prediction = self.out(logits)
-#         return predictiono
+        # call lstm with input, hidden state, and internal state
+        lstm_out, (h_n, c_n) = self.lstm(x, (h_0, c_0))
+        lstm_final_out = lstm_out[:,-1,:]  # last hidden state from every batch. size: N*H_cell
+        lstm_final_state = lstm_final_out.to(self.device)
+        fcn_out = self.fcn(lstm_final_state)
+        prediction = self.out(fcn_out)
+        return prediction
 
 
 # def run_lstm(train_loader, test_loader, model, n_epoch: int=10):
@@ -229,6 +228,11 @@ if __name__=='__main__':
     # Run setup
     DEVICE = 'cuda' if torch.cuda.is_available else 'cpu'
     BATCH_SIZE = 64
+    LSTM_INPUT_SIZE = 50        # lstm_input_size
+    LSTM_HIDDEN_SIZE = 50       # lstm_hidden_size
+    LSTM_NUM_LAYERS = 1         # lstm_num_layers
+    LSTM_BIDIRECTIONAL = True   # lstm_bidrectional
+    FCN_HIDDEN_SIZE = 20        # fcn_hidden_size
 
     # Dataset split and dataloader
     glove_transformer = Transformer('glove_kmer', glove_csv=glove_csv)
@@ -239,5 +243,17 @@ if __name__=='__main__':
 
     train_loader = DataLoader(train_set, batch_size=BATCH_SIZE, shuffle=True)
     test_loader = DataLoader(test_set, batch_size=BATCH_SIZE, shuffle=True)
-    train_feature, train_target = next(iter(train_loader))
-    print(train_feature[0], train_feature[0].shape, train_target[0])
+    labels, train_features , train_targets = next(iter(train_loader))
+
+    model = BLSTM(BATCH_SIZE,
+                  LSTM_INPUT_SIZE,
+                  LSTM_HIDDEN_SIZE,
+                  LSTM_NUM_LAYERS,
+                  LSTM_BIDIRECTIONAL,
+                  FCN_HIDDEN_SIZE,
+                  DEVICE)
+
+    model.to(DEVICE)
+    train_features = train_features.to(DEVICE)
+    pred = model(train_features)
+    print(f'precitions: {pred.view(-1)}')
