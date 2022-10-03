@@ -1,19 +1,17 @@
 """ Random forest and decision tree models
+
+Model MSE=2.8790654158926317
 """
 import os
 import re
 import sys
-import torch
 import pickle
-import numpy as np
-import pandas as pd
-import seaborn as sns
 from datetime import date
-from matplotlib import pyplot as plt
-from sklearn import tree
+
+import torch
+import numpy as np
 from sklearn.tree import DecisionTreeRegressor
 from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
 from torch.utils.data import random_split
 
 
@@ -37,7 +35,7 @@ class Transformer:
     def _load_glove_vect(self):
         """load Glove word vector file"""
         self.glove_kmer_dict = {}
-        with open(self.glove_csv, 'r') as fh:
+        with open(self.glove_csv, 'r', encoding='utf-8') as fh:
             for k_line in fh.readlines():
                 k_line = k_line.rstrip().split()
                 kmer = k_line[0]
@@ -222,8 +220,8 @@ def train_decision_tree(max_depth: int,
     regr = DecisionTreeRegressor(max_depth=max_depth)
     regr.fit(train_X, train_y)
     pred = regr.predict(test_X)
-    se = (pred - test_y)**2
-    return regr, se
+    squared_error = (pred - test_y)**2
+    return regr, squared_error
 
 def save_model(model: DecisionTreeRegressor, save_as: str):
     """Save a decision tree model using Pickle.
@@ -253,13 +251,13 @@ if __name__=='__main__':
     TEST_SIZE = len(data_set) - TRAIN_SIZE
     train_set, test_set = random_split(data_set, (TRAIN_SIZE, TEST_SIZE))
 
-    NUM_FEATURES = train_set[0][1].shape[0] * train_set[0][1].shape[1]  # 95*50 = 4900
-    FRAC = 1
+    NUM_FEATURES = train_set[0][1].shape[0] * train_set[0][1].shape[1]  # 98*50 = 4900
+    FRAC = 1                    # Fraction of data goes to model. 1 for 100%, smaller number for debugging.
     train_labels, train_X, train_y = prep_data(train_set, NUM_FEATURES, FRAC)
     test_labels, test_X, test_y = prep_data(test_set, NUM_FEATURES, FRAC)
     tree_regr, se = train_decision_tree(5, train_X, train_y, test_X, test_y)
     mse = se.mean()
-    
+
 
     model_file = f'decision_tree_train_{int(np.floor(TRAIN_SIZE*FRAC))}_test_{int(np.floor(TEST_SIZE*FRAC))}_{date.today()}'
     model_file = os.path.join(ROOT_DIR, f'models/{model_file}')
