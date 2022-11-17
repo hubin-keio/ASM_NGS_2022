@@ -24,6 +24,17 @@ class Transformer:
             self.glove_csv = kwargs['glove_csv']
             self.method = 'glove_kmer'
             self._load_glove_vect()
+
+        elif method == 'one_hot':
+            self.method = 'one_hot'
+
+        elif method == 'tape':
+            self.method = 'tape'
+            # prepare for TAPE
+            from tape import ProteinBertModel, TAPETokenizer
+            self.tape_model = ProteinBertModel.from_pretrained('bert-base')
+            self.tape_tokenizer = TAPETokenizer(vocab='iupac')
+
         else:
             print('unimplemented transform method', file=sys.stderr)
             sys.exit(1)
@@ -65,8 +76,43 @@ class Transformer:
         if self.method == 'glove_kmer':
             return self._embed_glove(seq)
 
+        if self.method == 'one_hot':
+            return self._embed_one_hot(seq)
+
+        if self.method == 'tape':
+            return self._embed_tape(seq)
+
         print(f'Undefined embedding method: {self.method}', file=sys.stderr)
         sys.exit(1)
+
+    def _embed_tape(self, seq: str) -> torch.Tensor:
+        """Embed sequence freature using TAPE.
+
+        TAPE model gives two embeddings, one seq level embedding and one pooled_embedding.
+        We will use the seq level emedding since the authors of TAPE suggests its peformance
+        is superiror compared to the pooled embeddng.
+        .
+        """
+        token = self.tape_tokenizer.encode(seq)
+        token = torch.tensor(np.array([token]))
+        seq_embedding, pooled_embedding = self.tape_model(token)
+        
+        return torch.squeeze(seq_embedding)
+
+    def _embed_one_hot(self, seq: str) -> torch.Tensor:
+        """Embed sequence feature using one-hot."""
+        kmers = self.get_kmer(seq)
+        embedding = torch.zeros(len(kmers), self.glove_vec_size)
+        for idx, kmer in enumerate(kmers):
+            try:
+                vec = self.glove_kmer_dict[kmer]
+                embedding[idx] = vec
+            except KeyError:
+                print(f'Unknown kmer: {kmer}', file=sys.stderr)
+                sys.exit(1)
+        return embedding
+
+
 
     def _embed_glove(self, seq: str) -> torch.Tensor:
         """Embed sequence feature using Glove vectors."""
@@ -136,10 +182,6 @@ class BindignDataset(Dataset):
             print(f'List index out of range: {idx}, length: {len(self.labels)}.',
                   file=sys.stderr)
             sys.exit(1)
-
-    # def __repr__(self):
-    #     repr = f'Dataset object using {self.transformer.method} with {len(self)} entries.'
-    #     return repr
 
     def _label_to_seq(self, label: str) -> str:
         """Genreate sequence based on reference sequence and mutation label."""
@@ -223,7 +265,8 @@ def run_lstm(model: BLSTM,
              test_set: Dataset,
              n_epochs: int,
              batch_size: int,
-             device: str):
+             device: str,
+             save_as: str):
     """Run LSTM model
 
     model: BLSTM,
@@ -232,6 +275,7 @@ def run_lstm(model: BLSTM,
     n_epochs: number of epochs
     batch_size: batch size
     device: 'gpu' or 'cpu'
+    save_as: path and file name to save the model results
     """
 
     L_RATE = 1e-5               # learning rate
@@ -277,12 +321,26 @@ def run_lstm(model: BLSTM,
         elif epoch%10 == 0:
             print(f'Epoch {epoch}, Train MSE: {train_loss}, Test MSE: {test_loss}')
 
+        save_model(model, optimizer, epoch, save_as + '.model_save')
+
     return train_loss_history, test_loss_history
 
+def save_model(model: BLSTM, optimizer: torch.optim.SGD, epoch: int, save_as: str):
+    """Save model parameters.
+
+    model: a BLSTM model object
+    optimizer: model optimizer
+    epoch: number of epochs in the end of the model running
+    save_as: file name for saveing the model.
+    """
+    torch.save({'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict()},
+               save_as)
 
 def plot_history(train_losses: list, n_train: int, test_losses: list,
                  n_test: int, save_as: str):
-    """Plot training and testing hisotry per epoch
+    """Plot training and testing history per epoch
 
     train_losses: a list of per epoch error from the training set
     n_train: number of items in the training set
@@ -302,12 +360,19 @@ def plot_history(train_losses: list, n_train: int, test_losses: list,
 
     plt.ion()
     fig = plt.figure(figsize=(8, 6))
-    sns.scatterplot(data=history_df, x=history_df.index, y='training', label='training')
-    sns.scatterplot(data=history_df, x=history_df.index, y='testing', label='tesing')
+    ax = sns.scatterplot(data=history_df, x=history_df.index, y='training', label='training')
+    sns.scatterplot(data=history_df, x=history_df.index, y='testing', label='testing')
+    ax.set(xlabel='Epochs', ylabel='Average MSE per sample')
+
     fig.savefig(save_as + '.png')
     history_df.to_csv(save_as + '.csv')
 
 def count_parameters(model):
+    """Count model parameters and print a summary
+
+    A nice hack from:
+    https://stackoverflow.com/a/62508086/1992369
+    """
     table = PrettyTable(["Modules", "Parameters"])
     total_params = 0
     for name, parameter in model.named_parameters():
@@ -316,7 +381,7 @@ def count_parameters(model):
         table.add_row([name, params])
         total_params+=params
     print(table)
-    print(f"Total Trainable Params: {total_params}")
+    print(f"Total Trainable Params: {total_params}\n")
     return total_params
 
 if __name__=='__main__':
@@ -325,23 +390,52 @@ if __name__=='__main__':
     DATA_DIR = os.path.join(ROOT_DIR, 'datasets')
 
 
-    KD_CSV = os.path.join(DATA_DIR, 'mutation_binding_Kds_head_1000.csv')
+    KD_CSV = os.path.join(DATA_DIR, 'mutation_binding_Kds.csv')
     REFSEQ = 'NITNLCPFGEVFNATRFASVYAWNRKRISNCVADYSVLYNSASFSTFKCYGVSPTKLNDLCFTNVYADSFVIRGDEVRQIAPGQTGKIADYNYKLPDDFTGCVIAWNSNNLDSKVGGNYNYLYRLFRKSNLKPFERDISTEIYQAGSTPCNGVEGFNCYFPLQSYGFQPTNGVGYQPYRVVVLSFELLHAPATVCGPKKST'
     GLOVE_CSV = os.path.join(ROOT_DIR, 'glove/glove_dms_k6_s2.vector.txt')
 
     # Run setup
     DEVICE = 'cuda' if torch.cuda.is_available else 'cpu'
     BATCH_SIZE = 20
-    N_EPOCHS = 100
-    LSTM_INPUT_SIZE = 50        # lstm_input_size
+    N_EPOCHS = 50
+    # LSTM_INPUT_SIZE = 50        # lstm_input_size
+    # LSTM_HIDDEN_SIZE = 50       # lstm_hidden_size
+    # LSTM_NUM_LAYERS = 1         # lstm_num_layers
+    # LSTM_BIDIRECTIONAL = True   # lstm_bidrectional
+    # FCN_HIDDEN_SIZE = 100        # fcn_hidden_size
+
+    ## Dataset split and dataloader
+    # glove_transformer = Transformer('glove_kmer', glove_csv=GLOVE_CSV)
+    # data_set = BindignDataset(KD_CSV, REFSEQ, glove_transformer)
+    # TRAIN_SIZE = int(0.8 * len(data_set))  # 80% goes to training.
+    # TEST_SIZE = len(data_set) - TRAIN_SIZE
+    # train_set, test_set = random_split(data_set, (TRAIN_SIZE, TEST_SIZE))
+
+    # model = BLSTM(BATCH_SIZE,
+    #               LSTM_INPUT_SIZE,
+    #               LSTM_HIDDEN_SIZE,
+    #               LSTM_NUM_LAYERS,
+    #               LSTM_BIDIRECTIONAL,
+    #               FCN_HIDDEN_SIZE,
+    #               DEVICE)
+
+    # count_parameters(model)
+
+    # model_result = f'blstm_train_{TRAIN_SIZE}_test_{TEST_SIZE}_{date.today()}'
+    # model_result = os.path.join(ROOT_DIR, f'plots/{model_result}')
+    # train_losses, test_losses = run_lstm(model, train_set, test_set,
+    #                                      N_EPOCHS, BATCH_SIZE, DEVICE, model_result)
+    # plot_history(train_losses, TRAIN_SIZE, test_losses, TEST_SIZE, model_result)
+
+    ## TAPE LSTMb
+    LSTM_INPUT_SIZE = 768       # lstm_input_size
     LSTM_HIDDEN_SIZE = 50       # lstm_hidden_size
     LSTM_NUM_LAYERS = 1         # lstm_num_layers
     LSTM_BIDIRECTIONAL = True   # lstm_bidrectional
     FCN_HIDDEN_SIZE = 100        # fcn_hidden_size
-
-    # Dataset split and dataloader
-    glove_transformer = Transformer('glove_kmer', glove_csv=GLOVE_CSV)
-    data_set = BindignDataset(KD_CSV, REFSEQ, glove_transformer)
+    
+    tape_transformer = Transformer('tape')
+    data_set = BindignDataset(KD_CSV, REFSEQ, tape_transformer)
     TRAIN_SIZE = int(0.8 * len(data_set))  # 80% goes to training.
     TEST_SIZE = len(data_set) - TRAIN_SIZE
     train_set, test_set = random_split(data_set, (TRAIN_SIZE, TEST_SIZE))
@@ -355,7 +449,13 @@ if __name__=='__main__':
                   DEVICE)
 
     count_parameters(model)
-    train_losses, test_losses = run_lstm(model, train_set, test_set, N_EPOCHS, BATCH_SIZE, DEVICE)
-    model_result = f'blstm_train_{TRAIN_SIZE}_test_{TEST_SIZE}_{date.today()}'
+    model_result = f'blstm_TAPE_train_{TRAIN_SIZE}_test_{TEST_SIZE}_{date.today()}'
     model_result = os.path.join(ROOT_DIR, f'plots/{model_result}')
+    train_losses, test_losses = run_lstm(model, train_set, test_set,
+                                         N_EPOCHS, BATCH_SIZE, DEVICE, model_result)
     plot_history(train_losses, TRAIN_SIZE, test_losses, TEST_SIZE, model_result)
+    
+    
+    
+
+    
